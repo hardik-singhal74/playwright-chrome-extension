@@ -1,7 +1,9 @@
 // State management
-let startTime = Date.now();
-let durationInterval = null;
-let recordedSteps = [];
+const state = {
+  startTime: Date.now(),
+  durationInterval: null,
+  recordedSteps: []
+};
 
 // DOM Elements
 const stopButton = document.getElementById('stopButton');
@@ -14,9 +16,9 @@ const exportButton = document.getElementById('exportButton');
 
 // Initialize recorder window
 chrome.storage.local.get(['recordedSteps', 'startTime'], (result) => {
-  recordedSteps = result.recordedSteps || [];
+  state.recordedSteps = result.recordedSteps || [];
   if (result.startTime) {
-    startTime = result.startTime;
+    state.startTime = result.startTime;
   }
   updateUI();
   startDurationTimer();
@@ -53,8 +55,8 @@ function showError(message) {
 }
 
 function startDurationTimer() {
-  durationInterval = setInterval(() => {
-    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+  state.durationInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
     const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
     const seconds = (elapsed % 60).toString().padStart(2, '0');
     durationElement.textContent = `${minutes}:${seconds}`;
@@ -62,44 +64,85 @@ function startDurationTimer() {
 }
 
 function stopDurationTimer() {
-  if (durationInterval) {
-    clearInterval(durationInterval);
-    durationInterval = null;
+  if (state.durationInterval) {
+    clearInterval(state.durationInterval);
+    state.durationInterval = null;
   }
 }
 
 function updateUI() {
-  stepCountElement.textContent = recordedSteps.length;
+  stepCountElement.textContent = state.recordedSteps.length;
   generatePreview();
 }
 
 function generatePreview() {
-  if (recordedSteps.length === 0) return;
+  if (!state.recordedSteps || state.recordedSteps.length === 0) return;
 
   const testName = 'Recorded Journey';
-  const url = recordedSteps[0]?.url || 'unknown-url';
+  const url = state.recordedSteps[0]?.url || 'unknown-url';
 
   let code = `import { test, expect } from '@playwright/test';\n\n`;
   code += `test('${testName}', async ({ page }) => {\n`;
   code += `  await page.goto('${url}');\n\n`;
 
-  recordedSteps.forEach(step => {
+  state.recordedSteps.forEach(step => {
+    if (!step || !step.type) return;
+
+    // Handle navigation steps separately since they don't have selectors
+    if (step.type === 'navigate') {
+      code += `  await page.goto('${step.url}');\n`;
+      return;
+    }
+
+    // Skip if selector is undefined or null
+    if (!step.selector) {
+      console.warn('Step missing selector:', step);
+      return;
+    }
+
+    // Check if the selector is a data-cy attribute
+    const isDataCy = typeof step.selector === 'string' &&
+                    step.selector.startsWith('[data-cy="') &&
+                    step.selector.endsWith('"]');
+
+    let selector;
+    try {
+      selector = isDataCy
+        ? step.selector.match(/\[data-cy="([^"]+)"\]/)?.[1]  // Extract the data-cy value
+        : step.selector;
+
+      if (!selector) {
+        console.warn('Could not extract selector from:', step.selector);
+        return;
+      }
+    } catch (err) {
+      console.error('Error processing selector:', err);
+      return;
+    }
+
     switch (step.type) {
       case 'click':
-        code += `  await page.locator('${step.selector}').click();\n`;
+        code += isDataCy
+          ? `  await page.getByTestId('${selector}').click();\n`
+          : `  await page.locator('${selector}').click();\n`;
         break;
       case 'type':
-        code += `  await page.locator('${step.selector}').fill('${step.value}');\n`;
-        break;
-      case 'navigate':
-        code += `  await page.goto('${step.url}');\n`;
+        if (!step.value) {
+          console.warn('Type step missing value:', step);
+          return;
+        }
+        code += isDataCy
+          ? `  await page.getByTestId('${selector}').fill('${step.value}');\n`
+          : `  await page.locator('${selector}').fill('${step.value}');\n`;
         break;
     }
   });
 
   code += '});\n';
 
-  codeTextarea.value = code;
+  if (codeTextarea) {
+    codeTextarea.value = code;
+  }
 }
 
 function exportTest() {
@@ -139,7 +182,7 @@ async function stopRecording() {
 // Listen for updates from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'stepRecorded') {
-    recordedSteps = message.steps;
+    state.recordedSteps = message.steps;
     updateUI();
   }
 });
