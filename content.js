@@ -5,6 +5,17 @@ let lastUrl = window.location.href;
 
 console.log('Content script loaded');
 
+// Add new assertion types
+const ASSERTION_TYPES = {
+  VISIBLE: 'visible',
+  TEXT: 'text',
+  VALUE: 'value',
+  CHECKED: 'checked',
+  DISABLED: 'disabled',
+  COUNT: 'count',
+  ATTRIBUTE: 'attribute'
+};
+
 // Helper function to get the best selector for an element
 function getSelector(element) {
   // First try data-* attributes (data-testid, data-test, data-cy)
@@ -192,9 +203,63 @@ function recordStep(step) {
   });
 }
 
+// Add assertion recording function
+function recordAssertion(element, type, expectedValue = null) {
+  if (!isRecording) return;
+
+  const selector = getSelector(element);
+  let assertion = {
+    type: 'assert',
+    assertionType: type,
+    selector,
+    expectedValue
+  };
+
+  // Add specific data based on assertion type
+  switch (type) {
+    case ASSERTION_TYPES.TEXT:
+      assertion.expectedValue = element.textContent?.trim();
+      break;
+    case ASSERTION_TYPES.VALUE:
+      assertion.expectedValue = element.value;
+      break;
+    case ASSERTION_TYPES.CHECKED:
+      assertion.expectedValue = element.checked;
+      break;
+    case ASSERTION_TYPES.DISABLED:
+      assertion.expectedValue = element.disabled;
+      break;
+    case ASSERTION_TYPES.COUNT:
+      // For count assertions, we'll count similar elements
+      const similarElements = document.querySelectorAll(getUniqueCssSelector(element));
+      assertion.expectedValue = similarElements.length;
+      break;
+    case ASSERTION_TYPES.ATTRIBUTE:
+      if (expectedValue) {
+        assertion.attributeName = expectedValue;
+        assertion.expectedValue = element.getAttribute(expectedValue);
+      }
+      break;
+  }
+
+  recordStep(assertion);
+}
+
 // Event Listeners
 function handleClick(event) {
   if (!isRecording) return;
+
+  // Ignore right-clicks (button 2) and middle-clicks (button 1)
+  if (event.button !== 0) return;
+
+  // Check if the click target or any of its parents is part of the assertion menu
+  let target = event.target;
+  while (target) {
+    if (target.classList.contains('playwright-recorder-ignore')) {
+      return;
+    }
+    target = target.parentElement;
+  }
 
   const element = event.target;
   const selector = getSelector(element);
@@ -306,3 +371,84 @@ window.addEventListener('beforeunload', () => {
     chrome.storage.local.set({ recordedSteps });
   }
 });
+
+// Add right-click context menu handler for assertions
+function handleContextMenu(event) {
+  if (!isRecording) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const element = event.target;
+
+  // Create assertion menu
+  const menu = document.createElement('div');
+  menu.className = 'playwright-assertion-menu playwright-recorder-ignore';
+  menu.style.cssText = `
+    position: fixed;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    z-index: 10000;
+  `;
+
+  const assertions = [
+    { type: ASSERTION_TYPES.VISIBLE, label: 'Assert Visible' },
+    { type: ASSERTION_TYPES.TEXT, label: 'Assert Text' },
+    { type: ASSERTION_TYPES.VALUE, label: 'Assert Value' },
+    { type: ASSERTION_TYPES.CHECKED, label: 'Assert Checked' },
+    { type: ASSERTION_TYPES.DISABLED, label: 'Assert Disabled' },
+    { type: ASSERTION_TYPES.COUNT, label: 'Assert Count' },
+    { type: ASSERTION_TYPES.ATTRIBUTE, label: 'Assert Attribute' }
+  ];
+
+  assertions.forEach(({ type, label }) => {
+    const button = document.createElement('button');
+    button.textContent = label;
+    button.className = 'playwright-recorder-ignore';
+    button.style.cssText = `
+      display: block;
+      width: 100%;
+      padding: 4px 8px;
+      margin: 2px 0;
+      border: none;
+      background: none;
+      text-align: left;
+      cursor: pointer;
+    `;
+    button.onmouseover = () => button.style.background = '#f0f0f0';
+    button.onmouseout = () => button.style.background = 'none';
+    button.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (type === ASSERTION_TYPES.ATTRIBUTE) {
+        const attrName = prompt('Enter attribute name:');
+        if (attrName) {
+          recordAssertion(element, type, attrName);
+        }
+      } else {
+        recordAssertion(element, type);
+      }
+      document.body.removeChild(menu);
+    };
+    menu.appendChild(button);
+  });
+
+  menu.style.left = `${event.pageX}px`;
+  menu.style.top = `${event.pageY}px`;
+  document.body.appendChild(menu);
+
+  // Close menu when clicking outside
+  const closeMenu = (e) => {
+    if (!menu.contains(e.target)) {
+      document.body.removeChild(menu);
+      document.removeEventListener('click', closeMenu);
+    }
+  };
+  document.addEventListener('click', closeMenu);
+}
+
+// Add context menu event listener
+document.addEventListener('contextmenu', handleContextMenu, true);

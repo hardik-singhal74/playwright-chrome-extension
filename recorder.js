@@ -116,6 +116,9 @@ function generatePreview() {
         }
         code += `  await ${locator}.fill('${step.value}');\n`;
         break;
+      case 'assert':
+        code += generateAssertion(locator, step);
+        break;
     }
   });
 
@@ -170,6 +173,40 @@ function generateLocator(selector) {
       console.warn('Unknown selector type:', selector.type);
       return null;
   }
+}
+
+function generateAssertion(locator, step) {
+  const { assertionType, expectedValue, attributeName } = step;
+  let assertion = '';
+
+  switch (assertionType) {
+    case 'visible':
+      assertion = `  await expect(${locator}).toBeVisible();\n`;
+      break;
+    case 'text':
+      assertion = `  await expect(${locator}).toHaveText('${expectedValue}');\n`;
+      break;
+    case 'value':
+      assertion = `  await expect(${locator}).toHaveValue('${expectedValue}');\n`;
+      break;
+    case 'checked':
+      assertion = `  await expect(${locator}).toBe${expectedValue ? 'Checked' : 'Unchecked'}();\n`;
+      break;
+    case 'disabled':
+      assertion = `  await expect(${locator}).toBe${expectedValue ? 'Disabled' : 'Enabled'}();\n`;
+      break;
+    case 'count':
+      assertion = `  await expect(${locator}).toHaveCount(${expectedValue});\n`;
+      break;
+    case 'attribute':
+      assertion = `  await expect(${locator}).toHaveAttribute('${attributeName}', '${expectedValue}');\n`;
+      break;
+    default:
+      console.warn('Unknown assertion type:', assertionType);
+      return '';
+  }
+
+  return assertion;
 }
 
 function exportTest() {
