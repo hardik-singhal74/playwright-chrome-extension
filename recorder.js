@@ -88,52 +88,33 @@ function generatePreview() {
   state.recordedSteps.forEach(step => {
     if (!step || !step.type) return;
 
-    // Handle navigation steps separately since they don't have selectors
     if (step.type === 'navigate') {
       code += `  await page.goto('${step.url}');\n`;
       return;
     }
 
-    // Skip if selector is undefined or null
     if (!step.selector) {
       console.warn('Step missing selector:', step);
       return;
     }
 
-    // Check if the selector is a data-cy attribute
-    const isDataCy = typeof step.selector === 'string' &&
-                    step.selector.startsWith('[data-cy="') &&
-                    step.selector.endsWith('"]');
-
-    let selector;
-    try {
-      selector = isDataCy
-        ? step.selector.match(/\[data-cy="([^"]+)"\]/)?.[1]  // Extract the data-cy value
-        : step.selector;
-
-      if (!selector) {
-        console.warn('Could not extract selector from:', step.selector);
-        return;
-      }
-    } catch (err) {
-      console.error('Error processing selector:', err);
+    // Generate locator based on selector type
+    const locator = generateLocator(step.selector);
+    if (!locator) {
+      console.warn('Could not generate locator for:', step.selector);
       return;
     }
 
     switch (step.type) {
       case 'click':
-        code += isDataCy
-          ? `  await page.getByTestId('${selector}').click();\n`
-          : `  await page.locator('${selector}').click();\n`;
+        code += `  await ${locator}.click();\n`;
         break;
       case 'type':
         if (!step.value) {
           console.warn('Type step missing value:', step);
           return;
         }
-        code += isDataCy
-          ? `  await page.getByTestId('${selector}').fill('${step.value}');\n`
-          : `  await page.locator('${selector}').fill('${step.value}');\n`;
+        code += `  await ${locator}.fill('${step.value}');\n`;
         break;
     }
   });
@@ -142,6 +123,52 @@ function generatePreview() {
 
   if (codeTextarea) {
     codeTextarea.value = code;
+  }
+}
+
+function generateLocator(selector) {
+  if (!selector || typeof selector !== 'object') {
+    console.warn('Invalid selector format:', selector);
+    return null;
+  }
+
+  switch (selector.type) {
+    case 'testId':
+      // Use getByTestId for data-* attributes
+      return `page.getByTestId('${selector.value}')`;
+
+    case 'title':
+      // Use getByTitle for title attribute
+      return `page.getByTitle('${selector.value}')`;
+
+    case 'role':
+      // Use getByRole with name
+      const { role, name } = selector.value;
+      return `page.getByRole('${role}', { name: '${name}' })`;
+
+    case 'label':
+      // Use getByLabel for label associations
+      return `page.getByLabel('${selector.value}')`;
+
+    case 'placeholder':
+      // Use getByPlaceholder for placeholder text
+      return `page.getByPlaceholder('${selector.value}')`;
+
+    case 'altText':
+      // Use getByAltText for image alt text
+      return `page.getByAltText('${selector.value}')`;
+
+    case 'text':
+      // Use getByText for text content
+      return `page.getByText('${selector.value}')`;
+
+    case 'css':
+      // Fallback to locator with CSS selector
+      return `page.locator('${selector.value}')`;
+
+    default:
+      console.warn('Unknown selector type:', selector.type);
+      return null;
   }
 }
 

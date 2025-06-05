@@ -7,33 +7,143 @@ console.log('Content script loaded');
 
 // Helper function to get the best selector for an element
 function getSelector(element) {
-  // First try data-cy
-  const dataCy = element.getAttribute('data-cy');
-  if (dataCy) {
-    return `[data-cy="${dataCy}"]`;
+  // First try data-* attributes (data-testid, data-test, data-cy)
+  const dataAttributes = ['data-testid', 'data-test', 'data-cy'];
+  for (const attr of dataAttributes) {
+    const value = element.getAttribute(attr);
+    if (value) {
+      return {
+        type: 'testId',
+        value: value,
+        attribute: attr
+      };
+    }
+  }
+
+  // Try title attribute
+  const title = element.getAttribute('title');
+  if (title) {
+    return {
+      type: 'title',
+      value: title
+    };
+  }
+
+  // Try role attribute or implicit role
+  const role = element.getAttribute('role') || getImplicitRole(element);
+  if (role) {
+    const name = element.getAttribute('aria-label') ||
+                element.textContent?.trim() ||
+                element.getAttribute('title');
+    if (name) {
+      return {
+        type: 'role',
+        value: { role, name }
+      };
+    }
+  }
+
+  // Try label association
+  const label = getAssociatedLabel(element);
+  if (label) {
+    return {
+      type: 'label',
+      value: label
+    };
+  }
+
+  // Try placeholder
+  const placeholder = element.getAttribute('placeholder');
+  if (placeholder) {
+    return {
+      type: 'placeholder',
+      value: placeholder
+    };
+  }
+
+  // Try alt text for images
+  if (element.tagName === 'IMG') {
+    const alt = element.getAttribute('alt');
+    if (alt) {
+      return {
+        type: 'altText',
+        value: alt
+      };
+    }
+  }
+
+  // Try text content as last resort
+  const text = element.textContent?.trim();
+  if (text && text.length < 100) { // Avoid long text content
+    return {
+      type: 'text',
+      value: text
+    };
   }
 
   // Fallback to a unique CSS selector
+  return {
+    type: 'css',
+    value: getUniqueCssSelector(element)
+  };
+}
+
+// Helper function to get implicit ARIA role
+function getImplicitRole(element) {
+  const tagName = element.tagName.toLowerCase();
+  const roleMap = {
+    'button': 'button',
+    'a': 'link',
+    'input': element.type === 'submit' ? 'button' : 'textbox',
+    'select': 'combobox',
+    'textarea': 'textbox',
+    'img': 'img',
+    'nav': 'navigation',
+    'main': 'main',
+    'header': 'banner',
+    'footer': 'contentinfo',
+    'aside': 'complementary',
+    'article': 'article',
+    'section': 'region',
+    'table': 'table',
+    'ul': 'list',
+    'ol': 'list',
+    'li': 'listitem'
+  };
+  return roleMap[tagName];
+}
+
+// Helper function to get associated label
+function getAssociatedLabel(element) {
+  // Check for explicit label association
+  const id = element.id;
+  if (id) {
+    const label = document.querySelector(`label[for="${id}"]`);
+    if (label) {
+      return label.textContent?.trim();
+    }
+  }
+
+  // Check for implicit label association
+  if (element.parentElement?.tagName === 'LABEL') {
+    return element.parentElement.textContent?.trim();
+  }
+
+  // Check for aria-label
+  const ariaLabel = element.getAttribute('aria-label');
+  if (ariaLabel) {
+    return ariaLabel;
+  }
+
+  return null;
+}
+
+// Helper function to get a unique CSS selector
+function getUniqueCssSelector(element) {
   if (element.id) {
     return `#${element.id}`;
   }
 
-  // Try to build a unique selector using classes
-  if (element.classList.length > 0) {
-    const classSelector = Array.from(element.classList)
-      .filter(cls => !cls.startsWith('js-')) // Filter out js- prefixed classes
-      .map(cls => `.${cls}`)
-      .join('');
-
-    if (classSelector) {
-      const elements = document.querySelectorAll(classSelector);
-      if (elements.length === 1) {
-        return classSelector;
-      }
-    }
-  }
-
-  // Fallback to nth-child
   let path = [];
   let current = element;
 
