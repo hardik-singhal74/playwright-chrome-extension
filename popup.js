@@ -1,8 +1,10 @@
 // State management
-let isRecording = false;
-let startTime = null;
-let durationInterval = null;
-let recordedSteps = [];
+const state = {
+  isRecording: false,
+  startTime: null,
+  durationInterval: null,
+  recordedSteps: []
+};
 
 // DOM Elements
 const recordButton = document.getElementById('recordButton');
@@ -37,10 +39,10 @@ function isRecordableUrl(url) {
 // Initialize popup state
 chrome.storage.local.get(['isRecording', 'recordedSteps'], (result) => {
   console.log('Initial state:', result);
-  isRecording = result.isRecording || false;
-  recordedSteps = result.recordedSteps || [];
+  state.isRecording = result.isRecording || false;
+  state.recordedSteps = result.recordedSteps || [];
   updateUI();
-  if (recordedSteps.length > 0) {
+  if (state.recordedSteps.length > 0) {
     generatePreview();
   }
 });
@@ -149,7 +151,7 @@ function showError(message) {
   statusElement.className = 'status error';
   // Reset after 3 seconds
   setTimeout(() => {
-    if (!isRecording) {
+    if (!state.isRecording) {
       statusElement.textContent = 'Not Recording';
       statusElement.className = 'status';
     }
@@ -159,9 +161,9 @@ function showError(message) {
 function handleRecordingStart(response) {
   console.log('Start recording response:', response);
   if (response && response.success) {
-    isRecording = true;
-    startTime = Date.now();
-    recordedSteps = [];
+    state.isRecording = true;
+    state.startTime = Date.now();
+    state.recordedSteps = [];
     updateStorage();
     updateUI();
     startDurationTimer();
@@ -172,8 +174,8 @@ async function stopRecording() {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     chrome.tabs.sendMessage(tabs[0].id, { action: 'stopRecording' }, (response) => {
       if (response && response.success) {
-        isRecording = false;
-        recordedSteps = response.steps || [];
+        state.isRecording = false;
+        state.recordedSteps = response.steps || [];
         updateStorage();
         updateUI();
         stopDurationTimer();
@@ -185,22 +187,22 @@ async function stopRecording() {
 
 function updateStorage() {
   chrome.storage.local.set({
-    isRecording,
-    recordedSteps,
-    startTime
+    isRecording: state.isRecording,
+    recordedSteps: state.recordedSteps,
+    startTime: state.startTime
   });
 }
 
 function updateUI() {
-  statusElement.textContent = isRecording ? 'Recording' : 'Not Recording';
-  statusElement.className = `status ${isRecording ? 'recording' : ''}`;
-  recordButton.style.display = isRecording ? 'none' : 'block';
-  stopButton.style.display = isRecording ? 'block' : 'none';
-  exportButton.disabled = recordedSteps.length === 0;
-  stepCountElement.textContent = recordedSteps.length;
+  statusElement.textContent = state.isRecording ? 'Recording' : 'Not Recording';
+  statusElement.className = `status ${state.isRecording ? 'recording' : ''}`;
+  recordButton.style.display = state.isRecording ? 'none' : 'block';
+  stopButton.style.display = state.isRecording ? 'block' : 'none';
+  exportButton.disabled = state.recordedSteps.length === 0;
+  stepCountElement.textContent = state.recordedSteps.length;
 
   // Show code preview if we have steps
-  if (recordedSteps.length > 0) {
+  if (state.recordedSteps.length > 0) {
     codePreviewElement.classList.add('visible');
   } else {
     codePreviewElement.classList.remove('visible');
@@ -208,8 +210,8 @@ function updateUI() {
 }
 
 function startDurationTimer() {
-  durationInterval = setInterval(() => {
-    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+  state.durationInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
     const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
     const seconds = (elapsed % 60).toString().padStart(2, '0');
     durationElement.textContent = `${minutes}:${seconds}`;
@@ -217,40 +219,83 @@ function startDurationTimer() {
 }
 
 function stopDurationTimer() {
-  if (durationInterval) {
-    clearInterval(durationInterval);
-    durationInterval = null;
+  if (state.durationInterval) {
+    clearInterval(state.durationInterval);
+    state.durationInterval = null;
   }
 }
 
 function generatePreview() {
-  if (recordedSteps.length === 0) return;
+  if (!state.recordedSteps || state.recordedSteps.length === 0) return;
 
   const testName = 'Recorded Journey';
-  const url = recordedSteps[0]?.url || 'unknown-url';
+  const url = state.recordedSteps[0]?.url || 'unknown-url';
 
   let code = `import { test, expect } from '@playwright/test';\n\n`;
   code += `test('${testName}', async ({ page }) => {\n`;
   code += `  await page.goto('${url}');\n\n`;
 
-  recordedSteps.forEach(step => {
+  state.recordedSteps.forEach(step => {
+    if (!step || !step.type) return;
+
+    // Handle navigation steps separately since they don't have selectors
+    if (step.type === 'navigate') {
+      code += `  await page.goto('${step.url}');\n`;
+      return;
+    }
+
+    // Skip if selector is undefined or null
+    if (!step.selector) {
+      console.warn('Step missing selector:', step);
+      return;
+    }
+
+    // Check if the selector is a data-cy attribute
+    const isDataCy = typeof step.selector === 'string' &&
+                    step.selector.startsWith('[data-cy="') &&
+                    step.selector.endsWith('"]');
+
+    let selector;
+    try {
+      selector = isDataCy
+        ? step.selector.match(/\[data-cy="([^"]+)"\]/)?.[1]  // Extract the data-cy value
+        : step.selector;
+
+      if (!selector) {
+        console.warn('Could not extract selector from:', step.selector);
+        return;
+      }
+    } catch (err) {
+      console.error('Error processing selector:', err);
+      return;
+    }
+
     switch (step.type) {
       case 'click':
-        code += `  await page.locator('${step.selector}').click();\n`;
+        code += isDataCy
+          ? `  await page.getByTestId('${selector}').click();\n`
+          : `  await page.locator('${selector}').click();\n`;
         break;
       case 'type':
-        code += `  await page.locator('${step.selector}').fill('${step.value}');\n`;
-        break;
-      case 'navigate':
-        code += `  await page.goto('${step.url}');\n`;
+        if (!step.value) {
+          console.warn('Type step missing value:', step);
+          return;
+        }
+        code += isDataCy
+          ? `  await page.getByTestId('${selector}').fill('${step.value}');\n`
+          : `  await page.locator('${selector}').fill('${step.value}');\n`;
         break;
     }
   });
 
   code += '});\n';
 
-  codeTextarea.value = code;
-  codePreviewElement.classList.add('visible');
+  if (codeTextarea) {
+    codeTextarea.value = code;
+    if (codePreviewElement) {
+      codePreviewElement.classList.add('visible');
+    }
+  }
 }
 
 function exportTest() {
@@ -268,8 +313,8 @@ function exportTest() {
 // Listen for updates from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'stepRecorded') {
-    recordedSteps = message.steps;
-    stepCountElement.textContent = recordedSteps.length;
+    state.recordedSteps = message.steps;
+    stepCountElement.textContent = state.recordedSteps.length;
     updateStorage();
     generatePreview(); // Update preview with new steps
   }
