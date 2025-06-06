@@ -17,6 +17,12 @@ const codePreviewElement = document.getElementById('codePreview');
 const codeTextarea = document.getElementById('codeTextarea');
 const copyButton = document.getElementById('copyButton');
 
+// Add new UI elements
+const suggestionButton = document.getElementById('suggestionButton');
+const suggestionPanel = document.getElementById('suggestionPanel');
+const suggestionContent = document.getElementById('suggestionContent');
+const loadingIndicator = document.getElementById('loadingIndicator');
+
 // Helper function to check if URL is recordable
 function isRecordableUrl(url) {
   try {
@@ -43,7 +49,7 @@ chrome.storage.local.get(['isRecording', 'recordedSteps'], (result) => {
   state.recordedSteps = result.recordedSteps || [];
   updateUI();
   if (state.recordedSteps.length > 0) {
-    generatePreview();
+    generatePreview().catch(console.error);
   }
 });
 
@@ -179,7 +185,7 @@ async function stopRecording() {
         updateStorage();
         updateUI();
         stopDurationTimer();
-        generatePreview();
+        generatePreview().catch(console.error);
       }
     });
   });
@@ -204,6 +210,7 @@ function updateUI() {
   // Show code preview if we have steps
   if (state.recordedSteps.length > 0) {
     codePreviewElement.classList.add('visible');
+    generatePreview().catch(console.error);
   } else {
     codePreviewElement.classList.remove('visible');
   }
@@ -225,58 +232,151 @@ function stopDurationTimer() {
   }
 }
 
-function generatePreview() {
+async function generatePreview() {
   if (!state.recordedSteps || state.recordedSteps.length === 0) return;
 
-  const testName = 'Recorded Journey';
-  const url = state.recordedSteps[0]?.url || 'unknown-url';
+  try {
+    // Get test description from Gemini
+    const description = await geminiService.generateTestDescription(state.recordedSteps);
+    const testName = description?.testName || 'Recorded Journey';
+    const url = state.recordedSteps[0]?.url || 'unknown-url';
 
-  let code = `import { test, expect } from '@playwright/test';\n\n`;
-  code += `test('${testName}', async ({ page }) => {\n`;
-  code += `  await page.goto('${url}');\n\n`;
+    let code = `import { test, expect } from '@playwright/test';\n\n`;
+    code += `test('${testName}', async ({ page }) => {\n`;
+    code += `  await page.goto('${url}');\n\n`;
 
-  state.recordedSteps.forEach(step => {
-    if (!step || !step.type) return;
+    state.recordedSteps.forEach(step => {
+      if (!step || !step.type) return;
 
-    if (step.type === 'navigate') {
-      code += `  await page.goto('${step.url}');\n`;
-      return;
+      if (step.type === 'navigate') {
+        code += `  await page.goto('${step.url}');\n`;
+        return;
+      }
+
+      if (!step.selector) {
+        console.warn('Step missing selector:', step);
+        return;
+      }
+
+      // Generate locator based on selector type
+      const locator = generateLocator(step.selector);
+      if (!locator) {
+        console.warn('Could not generate locator for:', step.selector);
+        return;
+      }
+
+      switch (step.type) {
+        case 'click':
+          code += `  await ${locator}.click();\n`;
+          break;
+        case 'type':
+          if (!step.value) {
+            console.warn('Type step missing value:', step);
+            return;
+          }
+          code += `  await ${locator}.fill('${step.value}');\n`;
+          break;
+        case 'assert':
+          code += generateAssertion(locator, step);
+          break;
+      }
+    });
+
+    code += '});\n';
+
+    if (codeTextarea) {
+      codeTextarea.value = code;
+      if (codePreviewElement) {
+        codePreviewElement.classList.add('visible');
+      }
     }
+  } catch (error) {
+    console.error('Error generating preview:', error);
+    // Fallback to basic test name if Gemini fails
+    const testName = 'Recorded Journey';
+    const url = state.recordedSteps[0]?.url || 'unknown-url';
 
-    if (!step.selector) {
-      console.warn('Step missing selector:', step);
-      return;
-    }
+    let code = `import { test, expect } from '@playwright/test';\n\n`;
+    code += `test('${testName}', async ({ page }) => {\n`;
+    code += `  await page.goto('${url}');\n\n`;
 
-    // Generate locator based on selector type
-    const locator = generateLocator(step.selector);
-    if (!locator) {
-      console.warn('Could not generate locator for:', step.selector);
-      return;
-    }
+    state.recordedSteps.forEach(step => {
+      if (!step || !step.type) return;
 
-    switch (step.type) {
-      case 'click':
-        code += `  await ${locator}.click();\n`;
-        break;
-      case 'type':
-        if (!step.value) {
-          console.warn('Type step missing value:', step);
-          return;
-        }
-        code += `  await ${locator}.fill('${step.value}');\n`;
-        break;
-    }
-  });
+      if (step.type === 'navigate') {
+        code += `  await page.goto('${step.url}');\n`;
+        return;
+      }
 
-  code += '});\n';
+      if (!step.selector) {
+        console.warn('Step missing selector:', step);
+        return;
+      }
 
-  if (codeTextarea) {
-    codeTextarea.value = code;
-    if (codePreviewElement) {
-      codePreviewElement.classList.add('visible');
+      // Generate locator based on selector type
+      const locator = generateLocator(step.selector);
+      if (!locator) {
+        console.warn('Could not generate locator for:', step.selector);
+        return;
+      }
+
+      switch (step.type) {
+        case 'click':
+          code += `  await ${locator}.click();\n`;
+          break;
+        case 'type':
+          if (!step.value) {
+            console.warn('Type step missing value:', step);
+            return;
+          }
+          code += `  await ${locator}.fill('${step.value}');\n`;
+          break;
+      }
+    });
+
+    code += '});\n';
+
+    if (codeTextarea) {
+      codeTextarea.value = code;
+      if (codePreviewElement) {
+        codePreviewElement.classList.add('visible');
+      }
     }
   }
+}
+
+function generateAssertion(locator, step) {
+  const { assertionType, expectedValue, attributeName } = step;
+  let assertion = '';
+
+  switch (assertionType) {
+    case 'visible':
+      assertion = `  await expect(${locator}).toBeVisible();\n`;
+      break;
+    case 'text':
+      assertion = `  await expect(${locator}).toHaveText('${expectedValue}');\n`;
+      break;
+    case 'value':
+      assertion = `  await expect(${locator}).toHaveValue('${expectedValue}');\n`;
+      break;
+    case 'checked':
+      assertion = `  await expect(${locator}).toBe${expectedValue ? 'Checked' : 'Unchecked'}();\n`;
+      break;
+    case 'disabled':
+      assertion = `  await expect(${locator}).toBe${expectedValue ? 'Disabled' : 'Enabled'}();\n`;
+      break;
+    case 'count':
+      assertion = `  await expect(${locator}).toHaveCount(${expectedValue});\n`;
+      break;
+    case 'attribute':
+      assertion = `  await expect(${locator}).toHaveAttribute('${attributeName}', '${expectedValue}');\n`;
+      break;
+    default:
+      console.warn('Unknown assertion type:', assertionType);
+      return '';
+  }
+
+  return assertion;
 }
 
 function generateBasicTestCode(steps) {
@@ -389,6 +489,134 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     state.recordedSteps = message.steps;
     stepCountElement.textContent = state.recordedSteps.length;
     updateStorage();
-    generatePreview(); // Update preview with new steps
+    generatePreview().catch(console.error);
   }
 });
+
+// Add event listener for suggestion button
+suggestionButton.addEventListener('click', async () => {
+  if (!state.recordedSteps.length) return;
+
+  try {
+    loadingIndicator.style.display = 'block';
+    suggestionPanel.classList.add('visible');
+
+    // Get suggestions from Gemini
+    const suggestions = await geminiService.generateTestSuggestions(state.recordedSteps);
+    if (!suggestions) {
+      throw new Error('Failed to get suggestions');
+    }
+
+    // Get test description
+    const description = await geminiService.generateTestDescription(state.recordedSteps);
+
+    // Update UI with suggestions
+    let suggestionHTML = '';
+
+    if (description) {
+      suggestionHTML += `
+        <div class="suggestion-section">
+          <h3>Suggested Test Description</h3>
+          <p><strong>Name:</strong> ${description.testName}</p>
+          <p><strong>Description:</strong> ${description.testDescription}</p>
+        </div>
+      `;
+    }
+
+    if (suggestions.additionalAssertions.length) {
+      suggestionHTML += `
+        <div class="suggestion-section">
+          <h3>Additional Assertions</h3>
+          <ul>
+            ${suggestions.additionalAssertions.map(assertion => `
+              <li>
+                <button class="apply-suggestion" data-type="assertion" data-code="${encodeURIComponent(assertion)}">
+                  Apply
+                </button>
+                ${assertion}
+              </li>
+            `).join('')}
+          </ul>
+        </div>
+      `;
+    }
+
+    if (suggestions.edgeCases.length) {
+      suggestionHTML += `
+        <div class="suggestion-section">
+          <h3>Edge Cases to Consider</h3>
+          <ul>
+            ${suggestions.edgeCases.map(edgeCase => `
+              <li>${edgeCase}</li>
+            `).join('')}
+          </ul>
+        </div>
+      `;
+    }
+
+    if (suggestions.optimizationSuggestions.length) {
+      suggestionHTML += `
+        <div class="suggestion-section">
+          <h3>Optimization Suggestions</h3>
+          <ul>
+            ${suggestions.optimizationSuggestions.map(suggestion => `
+              <li>${suggestion}</li>
+            `).join('')}
+          </ul>
+        </div>
+      `;
+    }
+
+    if (suggestions.flakinessWarnings.length) {
+      suggestionHTML += `
+        <div class="suggestion-section">
+          <h3>Potential Flakiness Issues</h3>
+          <ul>
+            ${suggestions.flakinessWarnings.map(warning => `
+              <li>${warning}</li>
+            `).join('')}
+          </ul>
+        </div>
+      `;
+    }
+
+    suggestionContent.innerHTML = suggestionHTML;
+
+    // Add event listeners for apply buttons
+    document.querySelectorAll('.apply-suggestion').forEach(button => {
+      button.addEventListener('click', (e) => {
+        const code = decodeURIComponent(e.target.dataset.code);
+        const type = e.target.dataset.type;
+        applySuggestion(code, type);
+      });
+    });
+
+  } catch (error) {
+    console.error('Error getting suggestions:', error);
+    suggestionContent.innerHTML = `
+      <div class="error-message">
+        Failed to get suggestions. Please try again.
+      </div>
+    `;
+  } finally {
+    loadingIndicator.style.display = 'none';
+  }
+});
+
+function applySuggestion(code, type) {
+  if (!codeTextarea) return;
+
+  const currentCode = codeTextarea.value;
+  let newCode = currentCode;
+
+  switch (type) {
+    case 'assertion':
+      // Insert assertion before the last closing brace
+      newCode = currentCode.replace(/}\);$/, `  ${code}\n});`);
+      break;
+    // Add more cases for other suggestion types
+  }
+
+  codeTextarea.value = newCode;
+  generatePreview().catch(console.error);
+}
