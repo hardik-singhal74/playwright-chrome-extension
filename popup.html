@@ -167,6 +167,102 @@
     .code-textarea:focus {
       background: #fff;
     }
+
+    .suggestion-panel {
+      display: none;
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 300px;
+      height: 100vh;
+      background: white;
+      box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+      padding: 20px;
+      overflow-y: auto;
+      z-index: 1000;
+    }
+
+    .suggestion-panel.visible {
+      display: block;
+    }
+
+    .suggestion-section {
+      margin-bottom: 20px;
+      padding: 10px;
+      border: 1px solid #eee;
+      border-radius: 4px;
+    }
+
+    .suggestion-section h3 {
+      margin: 0 0 10px 0;
+      color: #333;
+      font-size: 14px;
+    }
+
+    .suggestion-section ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .suggestion-section li {
+      margin: 5px 0;
+      padding: 5px;
+      background: #f8f8f8;
+      border-radius: 3px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+    }
+
+    .apply-suggestion {
+      margin-right: 8px;
+      padding: 2px 6px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .apply-suggestion:hover {
+      background: #45a049;
+    }
+
+    .loading-indicator {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+    }
+
+    .loading-indicator::after {
+      content: '';
+      display: block;
+      width: 30px;
+      height: 30px;
+      margin: 10px auto;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #3498db;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .error-message {
+      color: #d32f2f;
+      padding: 10px;
+      background: #ffebee;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
   </style>
 </head>
 <body>
@@ -192,6 +288,17 @@
         <button class="copy-button" id="copyButton">Copy Code</button>
       </div>
       <textarea class="code-textarea" id="codeTextarea" readonly></textarea>
+    </div>
+
+    <button id="suggestionButton" class="button">
+      Get AI Suggestions
+    </button>
+
+    <div id="suggestionPanel" class="suggestion-panel">
+      <div id="loadingIndicator" class="loading-indicator">
+        Getting suggestions...
+      </div>
+      <div id="suggestionContent"></div>
     </div>
   </div>
   <script src="popup.js"></script>
