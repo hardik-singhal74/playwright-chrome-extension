@@ -105,29 +105,6 @@ const PlaywrightBestPractices = {
       'Implement proper error handling',
       'Add comments for complex operations'
     ]
-  },
-
-  waiting: {
-    avoid: [
-      'page.waitForTimeout()',
-      'setTimeout()',
-      'new Promise(resolve => setTimeout(resolve, ...))',
-      'waitForTimeout',
-      'waitFor(selector, { timeout: ... })'
-    ],
-    prefer: [
-      'page.waitForLoadState("networkidle")',
-      'page.waitForLoadState("domcontentloaded")',
-      'page.waitForLoadState("load")',
-      'page.waitForSelector(selector, { state: "visible" })',
-      'page.waitForSelector(selector, { state: "attached" })',
-      'page.waitForSelector(selector, { state: "detached" })',
-      'page.waitForResponse(response => response.url().includes("..."))',
-      'page.waitForNavigation()',
-      'page.waitForURL(url)',
-      'page.waitForFunction(() => ...)'
-    ],
-    description: 'Use proper waiting mechanisms instead of arbitrary timeouts. Prefer page.waitForLoadState(), page.waitForSelector(), or other specific wait conditions.'
   }
 };
 
@@ -841,64 +818,6 @@ function generateTestCode(steps) {
     codeBuffer.push('});');
     codeBuffer.push('');
 
-    // Remove ALL body assertions if we have any specific element assertions
-    const hasSpecificAssertions = steps.some(step =>
-      step.type === 'assert' &&
-      step.assertionType === 'toHaveText' &&
-      step.selector !== 'body'
-    );
-
-    if (hasSpecificAssertions) {
-      steps = steps.filter(step =>
-        !(step.type === 'assert' &&
-          step.assertionType === 'toHaveText' &&
-          step.selector === 'body')
-      );
-    }
-
-    // Filter out redundant assertions
-    const textAssertions = steps.filter(step =>
-      step.type === 'assert' &&
-      step.assertionType === 'toHaveText'
-    );
-
-    // Keep only the most specific assertion for each element
-    const uniqueTextAssertions = new Map();
-    textAssertions.forEach(assertion => {
-      const key = assertion.selector;
-      uniqueTextAssertions.set(key, assertion);
-    });
-
-    // Get all non-text assertions
-    const otherAssertions = steps.filter(step =>
-      step.type === 'assert' &&
-      step.assertionType !== 'toHaveText'
-    );
-
-    // Combine unique text assertions with other assertions
-    const allAssertions = [...uniqueTextAssertions.values(), ...otherAssertions];
-
-    // Generate code for assertions
-    allAssertions.forEach(assertion => {
-      const { selector, assertionType, expectedValue, attributeName } = assertion;
-      const locator = generateLocator(selector);
-
-      let assertionCode = '';
-      switch (assertionType) {
-        case 'toHaveText':
-          assertionCode = `await expect(${locator}).toHaveText('${expectedValue}');`;
-          break;
-        case 'toHaveAttribute':
-          assertionCode = `await expect(${locator}).toHaveAttribute('${attributeName}', '${expectedValue}');`;
-          break;
-        // ... rest of the assertion types ...
-      }
-
-      if (assertionCode) {
-        code += `  ${assertionCode}\n`;
-      }
-    });
-
     return codeBuffer
       .join('\n')
       .replace(/\r\n/g, '\n')
@@ -1462,19 +1381,6 @@ async function startElementSelection() {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'stepRecorded') {
     state.recordedSteps = message.steps || [];
-    // Remove any body assertions if we have specific element assertions
-    const hasSpecificAssertions = state.recordedSteps.some(step =>
-      step.type === 'assert' &&
-      step.assertionType === 'toHaveText' &&
-      step.selector !== 'body'
-    );
-    if (hasSpecificAssertions) {
-      state.recordedSteps = state.recordedSteps.filter(step =>
-        !(step.type === 'assert' &&
-          step.assertionType === 'toHaveText' &&
-          step.selector === 'body')
-      );
-    }
     chrome.storage.local.set({ recordedSteps: state.recordedSteps }).catch(console.error);
     generatePreview();
   } else if (message.type === 'recordingStateChanged') {
@@ -1487,32 +1393,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const { type, expectedValue, attributeName } = state.pendingAssertion;
       const selector = message.selector;
 
-      // If this is a body assertion and we have any specific element assertions, don't add it
-      if (selector === 'body' && state.recordedSteps.some(step =>
-        step.type === 'assert' &&
-        step.assertionType === 'toHaveText' &&
-        step.selector !== 'body'
-      )) {
-        state.uiElements.status.textContent = 'Skipped body assertion - specific element assertion exists';
-        state.uiElements.status.className = 'status warning';
-        setTimeout(() => {
-          if (state.uiElements.status.textContent === 'Skipped body assertion - specific element assertion exists') {
-            state.uiElements.status.textContent = state.isRecording ? 'Recording...' : 'Not recording';
-            state.uiElements.status.className = 'status ' + (state.isPaused ? 'paused' : '');
-          }
-        }, 2000);
-        state.pendingAssertion = null;
-        return;
-      }
-
-      // Remove any existing text assertions for the same element
-      state.recordedSteps = state.recordedSteps.filter(step =>
-        !(step.type === 'assert' &&
-          step.assertionType === 'toHaveText' &&
-          step.selector === selector)
-      );
-
-      // Create new assertion step
+      // Create the assertion step
       const assertionStep = {
         type: 'assert',
         selector: selector,
@@ -1523,15 +1404,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       // Add the assertion to recorded steps
       state.recordedSteps.push(assertionStep);
-
-      // If we just added a specific element assertion, remove any body assertions
-      if (selector !== 'body') {
-        state.recordedSteps = state.recordedSteps.filter(step =>
-          !(step.type === 'assert' &&
-            step.assertionType === 'toHaveText' &&
-            step.selector === 'body')
-        );
-      }
 
       chrome.storage.local.set({ recordedSteps: state.recordedSteps }, () => {
         generatePreview();
@@ -2196,48 +2068,6 @@ ${dataCyAttributes.map(attr => `- ${attr.name}: ${attr.description || 'No descri
 Please use these data-cy attributes in your selectors when applicable.`
       : 'No data-cy attributes found on the current page.';
 
-    const fullPrompt = `
-      ${prompt}
-
-      Follow these Playwright best practices strictly:
-      1. Use proper waiting mechanisms:
-         - Instead of page.waitForTimeout(), use:
-           * page.waitForLoadState("networkidle") for waiting after navigation
-           * page.waitForSelector(selector, { state: "visible" }) for waiting for elements
-           * page.waitForResponse() for waiting for network requests
-           * page.waitForNavigation() for waiting for page transitions
-         - Never use arbitrary timeouts or sleep
-         - Always wait for specific conditions or states
-      2. ${PlaywrightBestPractices.selectors.description}
-      3. ${PlaywrightBestPractices.assertions.description}
-      4. ${PlaywrightBestPractices.actions.description}
-      5. ${PlaywrightBestPractices.structure.description}
-
-      Example of proper waiting:
-      // ❌ Bad - using timeout
-      await page.waitForTimeout(1000);
-      await page.click('#button');
-
-      // ✅ Good - using proper wait conditions
-      await page.waitForLoadState('networkidle');
-      await page.waitForSelector('#button', { state: 'visible' });
-      await page.click('#button');
-
-      // ✅ Good - waiting for network response
-      await Promise.all([
-        page.waitForResponse(response => response.url().includes('/api/data')),
-        page.click('#submit-button')
-      ]);
-
-      // ✅ Good - waiting for navigation
-      await Promise.all([
-        page.waitForNavigation(),
-        page.click('#link')
-      ]);
-
-      Generate code that follows these best practices strictly.
-    `;
-
     const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
       method: 'POST',
       headers: {
@@ -2246,7 +2076,36 @@ Please use these data-cy attributes in your selectors when applicable.`
       body: JSON.stringify({
         contents: [{
           parts: [{
-            text: fullPrompt
+            text: `You are a Playwright test automation expert. Generate test steps following these best practices:
+
+${JSON.stringify(PlaywrightBestPractices.structure.bestPractices, null, 2)}
+
+${dataCyInfo}
+
+For the scenario: "${prompt}"
+
+IMPORTANT: Follow these rules:
+1. Use test.step with static, descriptive names (NEVER use Faker or dynamic values in step descriptions)
+2. ALWAYS use page.getByTestId() for data-cy attributes, NEVER use page.locator('[data-cy="..."]')
+3. Use the following selector priority: ${PlaywrightBestPractices.selectors.preferred.map(s => s.type).join(' > ')}
+4. Include appropriate assertions after actions
+5. When available, prefer using data-cy attributes from the provided list
+6. Use Faker ONLY for input values (email, name, text, etc.), NEVER for step descriptions
+7. Format each step as a JSON object with:
+   - description: Clear, static step description
+   - code: Playwright code using the provided best practices
+   - explanation: Brief explanation of the step
+
+Example format:
+[
+  {
+    "description": "Select a conversation from the list",
+    "code": "await test.step('Select a conversation from the list', async () => {\\n  await page.getByTestId('all-contacts-row').first().click();\\n  await expect(page.getByTestId('inbox-body')).toBeVisible();\\n});",
+    "explanation": "Selects the first conversation and verifies the inbox body is visible"
+  }
+]
+
+Generate the steps now, ensuring the response is valid JSON and follows these best practices.`
           }]
         }]
       })
@@ -2316,38 +2175,8 @@ Please use these data-cy attributes in your selectors when applicable.`
   }
 }
 
-// Update validateGeneratedCode to check for improper waiting mechanisms
+// Update validateGeneratedCode to check for proper step descriptions
 function validateGeneratedCode(code) {
-  const issues = [];
-
-  // Check for improper waiting mechanisms
-  const improperWaitingPatterns = [
-    /page\.waitForTimeout\(/,
-    /setTimeout\(/,
-    /new Promise\(resolve => setTimeout\(resolve/,
-    /waitForTimeout/,
-    /waitFor\([^)]+,\s*{\s*timeout\s*:/
-  ];
-
-  improperWaitingPatterns.forEach(pattern => {
-    if (pattern.test(code)) {
-      issues.push({
-        type: 'improper_waiting',
-        message: 'Avoid using arbitrary timeouts. Use proper waiting mechanisms like page.waitForLoadState(), page.waitForSelector(), or page.waitForResponse().',
-        line: code.split('\n').findIndex(line => pattern.test(line)) + 1
-      });
-    }
-  });
-
-  // Check for test.step usage
-  if (!code.includes('test.step')) {
-    issues.push({
-      type: 'missing_test_step',
-      message: 'Code should use test.step for action grouping'
-    });
-  }
-
-  // Check for dynamic values in step descriptions
   const validationResults = {
     isValid: true,
     issues: []
