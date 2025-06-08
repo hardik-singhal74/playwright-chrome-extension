@@ -1,207 +1,555 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Playwright Journey Recorder</title>
+  <title>Journey Recorder</title>
   <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
     body {
       width: 100%;
-      height: 100vh;
+      min-height: 100vh;
       margin: 0;
-      padding: 12px;
+      padding: 24px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      box-sizing: border-box;
-      display: flex;
-      flex-direction: column;
-      background: #ffffff;
+      background: #f8f9fa;
     }
 
     .container {
+      width: 100%;
+      max-width: 800px;
+      margin: 0 auto;
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      height: 100%;
-      max-width: 100%;
+      gap: 24px;
     }
 
-    .header {
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(5, auto) 1fr;
+      gap: 12px;
+      padding: 20px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      align-items: center;
+    }
+
+    .controls button {
+      min-width: 100px;
+      white-space: nowrap;
+    }
+
+    #pauseButton,
+    #stopButton {
+      display: none;
+    }
+
+    .export-button {
+      background: #4caf50;
+      justify-self: end;
+      grid-column: -1;
+    }
+
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      background: #2196f3;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      margin-bottom: 4px;
+      gap: 8px;
+      transition: all 0.2s ease;
+      min-width: 100px;
+      justify-content: center;
     }
 
-    .title {
-      font-size: 14px;
-      font-weight: 600;
-      color: #1a1a1a;
-      margin: 0;
+    button:hover {
+      background: #1976d2;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    button:active {
+      transform: translateY(0);
+      box-shadow: none;
+    }
+
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    button.paused {
+      background: #ff9800;
+    }
+
+    button.paused:hover {
+      background: #f57c00;
     }
 
     .status {
-      font-size: 11px;
-      padding: 3px 6px;
-      border-radius: 10px;
-      background: #f0f0f0;
-      transition: all 0.3s ease;
-      max-width: 180px;
+      padding: 16px;
+      border-radius: 8px;
+      background: white;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       text-align: center;
-      word-wrap: break-word;
     }
 
     .status.recording {
-      background: #ffebee;
-      color: #d32f2f;
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+
+    .status.paused {
+      background: #fff3e0;
+      color: #f57c00;
     }
 
     .status.error {
       background: #ffebee;
-      color: #d32f2f;
-      font-weight: 500;
-      padding: 6px;
-      border-radius: 4px;
-      max-width: 100%;
-    }
-
-    .button {
-      width: 100%;
-      padding: 6px 12px;
-      border: none;
-      border-radius: 4px;
-      font-weight: 500;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .stop-button {
-      background: #424242;
-      color: white;
-    }
-
-    .stop-button:hover {
-      background: #212121;
-    }
-
-    .stats {
-      display: flex;
-      justify-content: space-between;
-      font-size: 11px;
-      color: #666;
-      padding: 0 2px;
+      color: #c62828;
     }
 
     .code-preview {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      border: 1px solid #e0e0e0;
-      border-radius: 4px;
+      width: 100%;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       overflow: hidden;
-      min-height: 0;
+      position: relative;
+    }
+
+    .code-preview textarea {
+      width: 100%;
+      height: 400px;
+      padding: 24px;
+      border: none;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      resize: vertical;
       background: #fafafa;
-    }
-
-    .code-preview-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 6px 8px;
-      background: #f5f5f5;
-      border-bottom: 1px solid #e0e0e0;
-    }
-
-    .code-preview-title {
-      font-size: 11px;
-      font-weight: 500;
-      color: #666;
+      color: #333;
+      tab-size: 2;
+      -moz-tab-size: 2;
+      white-space: pre;
+      overflow-wrap: normal;
+      overflow-x: auto;
     }
 
     .copy-button {
-      padding: 3px 6px;
-      font-size: 11px;
-      background: #1976d2;
-      color: white;
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      padding: 6px 12px;
       border: none;
-      border-radius: 3px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #333;
+      font-size: 12px;
+      font-weight: 500;
       cursor: pointer;
-      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      backdrop-filter: blur(4px);
+      z-index: 1;
     }
 
     .copy-button:hover {
-      background: #1565c0;
+      background: rgba(255, 255, 255, 1);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+    }
+
+    .copy-button:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
     .copy-button.copied {
       background: #4caf50;
-    }
-
-    .code-textarea {
-      flex: 1;
-      width: 100%;
-      padding: 8px;
-      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-      font-size: 11px;
-      line-height: 1.4;
-      color: #333;
-      background: #fafafa;
-      border: none;
-      resize: none;
-      outline: none;
-      min-height: 0;
-    }
-
-    .code-textarea:focus {
-      background: #fff;
-    }
-
-    .actions {
-      display: flex;
-      gap: 6px;
-    }
-
-    .export-button {
-      flex: 1;
-      background: #1976d2;
       color: white;
     }
 
-    .export-button:hover {
-      background: #1565c0;
+    .copy-button svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
     }
 
-    .export-button:disabled {
+    /* Assertion Toolbar */
+    .assert-toolbar {
+      display: none;
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: white;
+      border-radius: 8px;
+      padding: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      z-index: 1000;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .assert-toolbar.active {
+      display: flex;
+    }
+
+    .assert-toolbar-label {
+      font-size: 13px;
+      color: #666;
+      margin-right: 8px;
+      white-space: nowrap;
+    }
+
+    .assert-button {
+      width: 36px;
+      height: 36px;
+      min-width: 36px;
+      padding: 8px;
+      border: none;
+      border-radius: 6px;
+      background: #f5f5f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+
+    .assert-button:hover {
       background: #e0e0e0;
-      color: #9e9e9e;
-      cursor: not-allowed;
+    }
+
+    .assert-button.active {
+      background: #9c27b0;
+      color: white;
+    }
+
+    .assert-button svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    .assert-button .tooltip {
+      position: absolute;
+      bottom: -24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      pointer-events: none;
+    }
+
+    .assert-button:hover .tooltip {
+      opacity: 1;
+    }
+
+    /* Assertion Mode Indicator */
+    .assert-mode-indicator {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #9c27b0;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 24px;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      display: none;
+      align-items: center;
+      gap: 8px;
+      z-index: 1000;
+    }
+
+    .assert-mode-indicator.active {
+      display: flex;
+    }
+
+    .assert-mode-indicator svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 600px) {
+      body {
+        padding: 16px;
+      }
+
+      .container {
+        gap: 16px;
+      }
+
+      .controls {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        padding: 16px;
+      }
+
+      .controls button {
+        min-width: 0;
+        width: 100%;
+      }
+
+      .export-button {
+        grid-column: span 2;
+      }
+
+      #pauseButton,
+      #stopButton {
+        grid-column: span 1;
+      }
+
+      button {
+        padding: 8px 16px;
+        font-size: 13px;
+        min-width: 80px;
+      }
+
+      .code-preview textarea {
+        height: 300px;
+        padding: 16px;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .copy-button {
+        top: 8px;
+        right: 8px;
+        padding: 4px 8px;
+        font-size: 11px;
+      }
+
+      .copy-button svg {
+        width: 12px;
+        height: 12px;
+      }
+
+      .assert-toolbar {
+        top: auto;
+        bottom: 20px;
+        flex-wrap: wrap;
+        justify-content: center;
+        width: calc(100% - 32px);
+        max-width: 400px;
+      }
+
+      .assert-toolbar-label {
+        display: none;
+      }
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <h1 class="title">Journey Recorder</h1>
-      <span class="status recording" id="status">Recording</span>
+    <div class="controls">
+      <button id="recordButton">Start Recording</button>
+      <button id="pauseButton">Pause</button>
+      <button id="stopButton">Stop</button>
+      <button id="clearButton">Clear</button>
+      <button id="exportButton" class="export-button">Export Test</button>
     </div>
 
-    <button class="button stop-button" id="stopButton">Stop Recording</button>
+    <div id="status" class="status">Not recording</div>
 
-    <div class="stats">
-      <span>Steps: <span id="stepCount">0</span></span>
-      <span>Duration: <span id="duration">00:00</span></span>
-    </div>
-
-    <div class="code-preview" id="codePreview">
-      <div class="code-preview-header">
-        <span class="code-preview-title">Generated Test Code</span>
-        <button class="copy-button" id="copyButton">Copy Code</button>
-      </div>
-      <textarea class="code-textarea" id="codeTextarea" readonly></textarea>
-    </div>
-
-    <div class="actions">
-      <button class="button export-button" id="exportButton">Export Playwright Test</button>
+    <div class="code-preview">
+      <textarea id="codeTextarea" readonly placeholder="Recorded test code will appear here..."></textarea>
+      <button id="copyButton" class="copy-button">
+        <svg viewBox="0 0 24 24">
+          <path d="M16 1H4C2.9 1 2 1.9 2 3v14h2V3h12V1zm3 4H8C6.9 5 6 5.9 6 7v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+        </svg>
+        Copy Code
+      </button>
     </div>
   </div>
+
+  <!-- Assertion Toolbar -->
+  <div id="assertToolbar" class="assert-toolbar">
+    <span class="assert-toolbar-label">Assert:</span>
+    <button class="assert-button" data-type="visible" title="Assert Visible">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+      </svg>
+      <span class="tooltip">Assert Visible</span>
+    </button>
+    <button class="assert-button" data-type="text" title="Assert Text">
+      <svg viewBox="0 0 24 24">
+        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 16H6V4h7v5h5v9z"/>
+      </svg>
+      <span class="tooltip">Assert Text</span>
+    </button>
+    <button class="assert-button" data-type="value" title="Assert Value">
+      <svg viewBox="0 0 24 24">
+        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+      </svg>
+      <span class="tooltip">Assert Value</span>
+    </button>
+    <button class="assert-button" data-type="checked" title="Assert Checked">
+      <svg viewBox="0 0 24 24">
+        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+      </svg>
+      <span class="tooltip">Assert Checked</span>
+    </button>
+    <button class="assert-button" data-type="disabled" title="Assert Disabled">
+      <svg viewBox="0 0 24 24">
+        <path d="M13 9V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5v3.68l7.83 7.83L21 16v-2l-8-5zM3 5.27l4.99 4.99L2 14v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-3.73L6.73 9 8 7.73 3 5.27z"/>
+      </svg>
+      <span class="tooltip">Assert Disabled</span>
+    </button>
+    <button class="assert-button" data-type="count" title="Assert Count">
+      <svg viewBox="0 0 24 24">
+        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+      </svg>
+      <span class="tooltip">Assert Count</span>
+    </button>
+  </div>
+
+  <!-- Assertion Mode Indicator -->
+  <div id="assertModeIndicator" class="assert-mode-indicator">
+    <svg viewBox="0 0 24 24">
+      <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+    </svg>
+    <span>Click an element to assert</span>
+  </div>
+
   <script src="recorder.js"></script>
+  <script>
+    // Add copy to clipboard functionality
+    document.getElementById('copyButton').addEventListener('click', async () => {
+      const textarea = document.getElementById('codeTextarea');
+      const copyButton = document.getElementById('copyButton');
+
+      try {
+        await navigator.clipboard.writeText(textarea.value);
+        copyButton.classList.add('copied');
+        copyButton.innerHTML = `
+          <svg viewBox="0 0 24 24">
+            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+          </svg>
+          Copied!
+        `;
+
+        setTimeout(() => {
+          copyButton.classList.remove('copied');
+          copyButton.innerHTML = `
+            <svg viewBox="0 0 24 24">
+              <path d="M16 1H4C2.9 1 2 1.9 2 3v14h2V3h12V1zm3 4H8C6.9 5 6 5.9 6 7v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+            </svg>
+            Copy Code
+          `;
+        }, 2000);
+      } catch (err) {
+        console.error('Failed to copy text: ', err);
+        copyButton.textContent = 'Failed to copy';
+        setTimeout(() => {
+          copyButton.innerHTML = `
+            <svg viewBox="0 0 24 24">
+              <path d="M16 1H4C2.9 1 2 1.9 2 3v14h2V3h12V1zm3 4H8C6.9 5 6 5.9 6 7v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+            </svg>
+            Copy Code
+          `;
+        }, 2000);
+      }
+    });
+
+    // Assertion Toolbar Handling
+    const assertToolbar = document.getElementById('assertToolbar');
+    const assertButtons = document.querySelectorAll('.assert-button');
+    const assertModeIndicator = document.getElementById('assertModeIndicator');
+    let selectedAssertType = null;
+
+    function updateAssertToolbar() {
+      if (state.isRecording) {
+        assertToolbar.classList.add('active');
+      } else {
+        assertToolbar.classList.remove('active');
+        selectedAssertType = null;
+        assertModeIndicator.classList.remove('active');
+      }
+    }
+
+    function startAssertionMode(type) {
+      selectedAssertType = type;
+      assertModeIndicator.classList.add('active');
+
+      // Update button states
+      assertButtons.forEach(button => {
+        button.classList.toggle('active', button.dataset.type === type);
+      });
+
+      // Send message to content script to start assertion mode
+      chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+        chrome.tabs.sendMessage(tab.id, {
+          action: 'startAssertionMode',
+          type: type
+        });
+      });
+    }
+
+    // Handle assertion type selection
+    assertButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        const type = button.dataset.type;
+        if (selectedAssertType === type) {
+          // If clicking the same button, cancel assertion mode
+          selectedAssertType = null;
+          button.classList.remove('active');
+          assertModeIndicator.classList.remove('active');
+          chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+            chrome.tabs.sendMessage(tab.id, {
+              action: 'cancelAssertionMode'
+            });
+          });
+        } else {
+          startAssertionMode(type);
+        }
+      });
+    });
+
+    // Listen for assertion completion from content script
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.type === 'assertionComplete') {
+        assertModeIndicator.classList.remove('active');
+        selectedAssertType = null;
+        assertButtons.forEach(button => button.classList.remove('active'));
+      }
+    });
+
+    // Update toolbar visibility when recording state changes
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.type === 'recordingStateChanged') {
+        updateAssertToolbar();
+      }
+    });
+
+    // Initial toolbar state
+    updateAssertToolbar();
+  </script>
 </body>
 </html>
